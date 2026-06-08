@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iMessage 测试器</title>
+    <style>
+        /* 定义苹果风格的颜色变量 */
+        :root {
+            --apple-bg: #f2f2f7;
+            --apple-blue: #007aff;
+            --apple-gray: #e5e5ea;
+            --apple-text-dark: #000000;
+        }
+
+        body {
+            /* 强制使用苹果系统默认字体 */
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--apple-bg);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        /* 手机壳容器 */
+        .chat-container {
+            width: 100%;
+            max-width: 380px;
+            height: 85vh;
+            background: #ffffff;
+            border-radius: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 8px solid #333; /* 模拟手机边框 */
+        }
+
+        /* 顶部导航栏 (毛玻璃效果) */
+        .header {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 20px 15px 15px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 17px;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+
+        /* 聊天记录滚动区 */
+        .messages {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: #ffffff;
+        }
+
+        /* 气泡通用样式 */
+        .bubble {
+            max-width: 75%;
+            padding: 10px 16px;
+            border-radius: 20px;
+            font-size: 15px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            animation: popIn 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        /* 接收到的消息气泡 (灰色，靠左) */
+        .bubble.received {
+            background-color: var(--apple-gray);
+            color: var(--apple-text-dark);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        /* 底部输入区 */
+        .input-area {
+            padding: 15px;
+            background: #ffffff;
+            display: flex;
+            gap: 10px;
+            border-top: 1px solid rgba(0,0,0,0.05);
+            align-items: center;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            border: 1px solid #c7c7cc;
+            border-radius: 20px;
+            padding: 10px 15px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--apple-blue);
+        }
+
+        /* 发送按钮 */
+        button {
+            background-color: var(--apple-blue);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: transform 0.1s;
+        }
+
+        button:active {
+            transform: scale(0.9);
+        }
+
+        /* 气泡弹出的简单动画 */
+        @keyframes popIn {
+            from { opacity: 0; transform: translateY(10px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="header">极简聊天室 MVP</div>
+        <div class="messages" id="chatbox"></div>
+        <div class="input-area">
+            <input type="text" id="msg" placeholder="iMessage...">
+            <button onclick="send()">↑</button>
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://" + window.location.host + "/ws");
+        const chatbox = document.getElementById("chatbox");
+
+        ws.onmessage = function(event) {
+            // 创建新的气泡元素
+            const div = document.createElement("div");
+            
+            // 目前后端只是无差别广播，还分不清谁是谁，所以前端统一显示为灰色接收气泡
+            div.className = "bubble received";
+            div.textContent = event.data;
+            
+            chatbox.appendChild(div);
+            // 自动滚动到底部
+            chatbox.scrollTop = chatbox.scrollHeight;
+        };
+
+        function send() {
+            const input = document.getElementById("msg");
+            if (input.value.trim() !== "") {
+                ws.send(input.value);
+                input.value = "";
+            }
+        }
+
+        document.getElementById("msg").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                send();
+            }
+        });
+    </script>
+</body>
+</html>
