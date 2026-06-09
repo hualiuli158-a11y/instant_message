@@ -30,9 +30,13 @@ var upgrader = websocket.Upgrader{
 
 type Client struct {
 	hub *Hub
-	// 底层的 websocket 连接
+
+	// 用户唯一标识 (比如 "user_123")
+	UserID string
+
+	// 故意小写，禁止外部包直接访问！强迫大家必须通过 send 通道发消息
 	conn *websocket.Conn
-	// 缓冲 channel，用于存放要发送给该客户端的消息
+
 	send chan []byte
 }
 
