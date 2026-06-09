@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	// 允许写操作的最长时间（通常 10 秒足够把消息推给内核的 TCP 缓冲区了）
+	writeWait = 10 * time.Second
 	// 允许客户端多久不理我们（也就是读超时时间），通常设为 60 秒
 	pongWait = 60 * time.Second
 
@@ -66,29 +68,34 @@ func (c *Client) readPump() {
 
 // writePump 负责把 Client.send 里的消息推给前端
 func (c *Client) writePump() {
-	// 创建一个定时器，每 54 秒触发一次
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		ticker.Stop() // 记得停掉定时器，防止内存泄漏
+		ticker.Stop()
 		c.conn.Close()
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.send:
+			// 1. 发送常规消息（或关闭指令）前，先设定写超时！
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
+				// Hub 关闭了 channel，说明当前客户端该滚蛋了
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			// 暂时不加写超时，保留你原本发消息的逻辑
-			c.conn.WriteMessage(websocket.TextMessage, message)
+
+			// 真正执行写操作。如果网络卡死，最多卡 10 秒就会报错返回 err
+			err := c.conn.WriteMessage(websocket.TextMessage, message)
+			if err != nil {
+				return // 写入失败（超时或连接已断），直接 break 退出协程，回收资源
+			}
 
 		case <-ticker.C:
-			// 定时器到了！给客户端发一个 Ping 帧
-			// (这里偷摸加了一行极简的写超时，防止发 Ping 时卡死，为咱们的第二点做个铺垫)
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			// 2. 发送 Ping 帧前，也要设定写超时！
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return // 如果发 Ping 都报错了，说明底层 TCP 已经炸了，直接退出清理
+				return // Ping 都发不出去，说明底层的 TCP 管道彻底废了，直接退出
 			}
 		}
 	}
