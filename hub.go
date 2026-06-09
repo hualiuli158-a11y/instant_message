@@ -1,20 +1,14 @@
 package main
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log"
+)
 
-// Message 定义了前后端交互的标准数据包格式
-type Message struct {
-	From string `json:"from"` // 发送者 ID
-	To   string `json:"to"`   // 接收者 ID (如果是群聊，可以约定为 "all" 或群组 ID)
-	Data string `json:"data"` // 实际的消息内容
-}
+const MaxClients = 1000
 
-// Hub 维护所有活跃的客户端，并向他们广播消息
 type Hub struct {
-	// 核心升级：用 UserID 作为 Key 映射到具体的 Client
-	clients map[string]*Client
-
-	// 收发通道
+	clients    map[string]*Client
 	broadcast  chan []byte
 	register   chan *Client
 	unregister chan *Client
@@ -33,26 +27,33 @@ func (h *Hub) run() {
 	for {
 		select {
 		case client := <-h.register:
-			// 客户端上线，登记到名册里
+			if len(h.clients) >= MaxClients {
+				limitMsg, _ := json.Marshal(Message{Type: "system", Data: "服务器已满"})
+				client.send <- limitMsg
+				close(client.send)
+				continue
+			}
 			h.clients[client.UserID] = client
+			h.broadcastSystemMessage(client.UserID + " 加入了群聊")
+			h.broadcastOnlineUsers()
 
 		case client := <-h.unregister:
 			if _, ok := h.clients[client.UserID]; ok {
 				delete(h.clients, client.UserID)
 				close(client.send)
+				h.broadcastSystemMessage(client.UserID + " 离开了群聊")
+				h.broadcastOnlineUsers()
 			}
 
 		case messageData := <-h.broadcast:
-			// 收到前端发来的消息，先解析 JSON 拆包
 			var msg Message
-			err := json.Unmarshal(messageData, &msg)
-			if err != nil {
-				continue // 格式不对，直接丢弃
+			if err := json.Unmarshal(messageData, &msg); err != nil {
+				log.Printf("Hub 广播解析 JSON 失败: %v", err)
+				continue
 			}
 
-			// 路由逻辑：精准打击
 			if msg.To == "all" {
-				// 群发逻辑
+				// 1. 群发分支：安全写保护
 				for _, client := range h.clients {
 					select {
 					case client.send <- messageData:
@@ -62,18 +63,58 @@ func (h *Hub) run() {
 					}
 				}
 			} else {
-				// 私聊逻辑：在 map 中精确查找接收方 (比如李四)
+				// 2. 🔴 严重缺陷修复：私聊分支加入写保护，防止阻塞全局 Hub
 				if targetClient, ok := h.clients[msg.To]; ok {
 					select {
 					case targetClient.send <- messageData:
-						// 成功塞入李四的专属 Channel，由李四的 writePump 单线程序列化发出，绝对线程安全！
 					default:
-						// 李四的缓冲区满了 (可能网卡了)，踢掉他
+						log.Printf("目标用户 %s 缓冲区满，强制下线", targetClient.UserID)
 						close(targetClient.send)
 						delete(h.clients, targetClient.UserID)
 					}
 				}
+
+				// 3. 🟡 中等缺陷修复：给自己推消息的 default 分支补全清理逻辑
+				if selfClient, ok := h.clients[msg.From]; ok {
+					select {
+					case selfClient.send <- messageData:
+					default:
+						log.Printf("发送者用户 %s 缓冲区满，强制下线", selfClient.UserID)
+						close(selfClient.send)
+						delete(h.clients, selfClient.UserID)
+					}
+				}
 			}
+		}
+	}
+}
+
+func (h *Hub) broadcastSystemMessage(text string) {
+	msg := Message{Type: "system", Data: text}
+	b, _ := json.Marshal(msg)
+	for _, client := range h.clients {
+		select {
+		case client.send <- b:
+		default:
+			close(client.send)
+			delete(h.clients, client.UserID)
+		}
+	}
+}
+
+func (h *Hub) broadcastOnlineUsers() {
+	var users []string
+	for userID := range h.clients {
+		users = append(users, userID)
+	}
+	msg := Message{Type: "users", UserList: users}
+	b, _ := json.Marshal(msg)
+	for _, client := range h.clients {
+		select {
+		case client.send <- b:
+		default:
+			close(client.send)
+			delete(h.clients, client.UserID)
 		}
 	}
 }

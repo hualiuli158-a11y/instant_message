@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -41,32 +42,39 @@ type Client struct {
 }
 
 // readPump 负责从 WebSocket 读取消息并送到 Hub
+// ... 顶部保持不变 ...
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
 
-	// 限制消息大小，防止 OOM
 	c.conn.SetReadLimit(maxMessageSize)
-	// 设置首次读超时时间：从现在起 60 秒内必须收到消息或 Pong
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	// 关键！注册 Pong 处理器：每次收到浏览器的 Pong 帧，就把倒计时再往后推 60 秒（续命）
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
 
 	for {
-		_, message, err := c.conn.ReadMessage()
+		_, text, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				log.Printf("WebSocket 读取错误: %v", err)
 			}
-			// 一旦读超时（或者客户端真断开了），ReadMessage 会返回 err，直接 break 退出循环，回收资源
 			break
 		}
-		c.hub.broadcast <- message
+
+		var msg Message
+		if err := json.Unmarshal(text, &msg); err != nil {
+			// 🟢 轻量优化：不要静默丢弃，打印日志以便 Debug
+			log.Printf("用户 %s 发送了非法 JSON 数据: %v, 内容: %s", c.UserID, err, string(text))
+			continue
+		}
+
+		msg.From = c.UserID
+		b, _ := json.Marshal(msg)
+		c.hub.broadcast <- b
 	}
 }
 

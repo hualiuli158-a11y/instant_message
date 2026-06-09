@@ -3,18 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iMessage 测试器</title>
+    <title>iMessage 测试器 - 完整协议版</title>
     <style>
-        /* 定义苹果风格的颜色变量 */
         :root {
             --apple-bg: #f2f2f7;
             --apple-blue: #007aff;
             --apple-gray: #e5e5ea;
             --apple-text-dark: #000000;
+            --apple-system-text: #8e8e93;
         }
 
         body {
-            /* 强制使用苹果系统默认字体 */
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
             background-color: var(--apple-bg);
             margin: 0;
@@ -24,7 +23,6 @@
             height: 100vh;
         }
 
-        /* 手机壳容器 */
         .chat-container {
             width: 100%;
             max-width: 380px;
@@ -35,23 +33,22 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            border: 8px solid #333; /* 模拟手机边框 */
+            border: 8px solid #333;
         }
 
-        /* 顶部导航栏 (毛玻璃效果) */
         .header {
             background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            padding: 20px 15px 15px;
+            padding: 20px 15px 10px;
             text-align: center;
-            font-weight: 600;
-            font-size: 17px;
             border-bottom: 1px solid rgba(0,0,0,0.05);
             z-index: 10;
         }
 
-        /* 聊天记录滚动区 */
+        .header-title { font-weight: 600; font-size: 17px; }
+        .online-status { font-size: 12px; color: var(--apple-system-text); margin-top: 4px; font-weight: normal; }
+
         .messages {
             flex: 1;
             padding: 15px;
@@ -62,34 +59,68 @@
             background: #ffffff;
         }
 
-        /* 气泡通用样式 */
-        .bubble {
+        /* 聊天气泡包裹器 */
+        .message-wrapper {
+            display: flex;
+            flex-direction: column;
             max-width: 75%;
+            animation: popIn 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            align-self: flex-start;
+        }
+
+        .message-sender {
+            font-size: 11px;
+            color: var(--apple-system-text);
+            margin-bottom: 2px;
+            margin-left: 10px;
+        }
+
+        .bubble {
             padding: 10px 16px;
             border-radius: 20px;
             font-size: 15px;
             line-height: 1.4;
             word-wrap: break-word;
-            animation: popIn 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        }
-
-        /* 接收到的消息气泡 (灰色，靠左) */
-        .bubble.received {
             background-color: var(--apple-gray);
             color: var(--apple-text-dark);
-            align-self: flex-start;
             border-bottom-left-radius: 4px;
         }
 
-        /* 底部输入区 */
-        .input-area {
-            padding: 15px;
+        /* 系统上下线提示消息 */
+        .system-msg {
+            align-self: center;
+            font-size: 12px;
+            color: var(--apple-system-text);
+            margin: 5px 0;
+            text-align: center;
+            background: rgba(0,0,0,0.05);
+            padding: 4px 10px;
+            border-radius: 10px;
+        }
+
+        .controls-area {
+            border-top: 1px solid rgba(0,0,0,0.05);
+            padding: 10px 15px;
             background: #ffffff;
             display: flex;
+            flex-direction: column;
             gap: 10px;
-            border-top: 1px solid rgba(0,0,0,0.05);
-            align-items: center;
         }
+
+        /* 私聊目标选择器 */
+        .target-select {
+            width: 100%;
+            padding: 6px;
+            border-radius: 8px;
+            border: 1px solid #c7c7cc;
+            outline: none;
+            font-size: 13px;
+            color: var(--apple-blue);
+            background: var(--apple-bg);
+            cursor: pointer;
+        }
+
+        .input-area { display: flex; gap: 10px; align-items: center; }
 
         input[type="text"] {
             flex: 1;
@@ -100,12 +131,8 @@
             outline: none;
             transition: border-color 0.2s;
         }
+        input[type="text"]:focus { border-color: var(--apple-blue); }
 
-        input[type="text"]:focus {
-            border-color: var(--apple-blue);
-        }
-
-        /* 发送按钮 */
         button {
             background-color: var(--apple-blue);
             color: white;
@@ -119,14 +146,9 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            transition: transform 0.1s;
         }
+        button:active { transform: scale(0.9); }
 
-        button:active {
-            transform: scale(0.9);
-        }
-
-        /* 气泡弹出的简单动画 */
         @keyframes popIn {
             from { opacity: 0; transform: translateY(10px) scale(0.95); }
             to { opacity: 1; transform: translateY(0) scale(1); }
@@ -135,35 +157,101 @@
 </head>
 <body>
     <div class="chat-container">
-        <div class="header">极简聊天室 MVP</div>
+        <div class="header">
+            <div class="header-title">极简聊天室 MVP</div>
+            <div class="online-status" id="online-status">连接中...</div>
+        </div>
+        
         <div class="messages" id="chatbox"></div>
-        <div class="input-area">
-            <input type="text" id="msg" placeholder="iMessage...">
-            <button onclick="send()">↑</button>
+        
+        <div class="controls-area">
+            <select id="target-user" class="target-select">
+                <option value="all">🌐 发送给：所有人 (群发)</option>
+            </select>
+            
+            <div class="input-area">
+                <input type="text" id="msg" placeholder="iMessage...">
+                <button onclick="send()">↑</button>
+            </div>
         </div>
     </div>
 
     <script>
         const ws = new WebSocket("ws://" + window.location.host + "/ws");
         const chatbox = document.getElementById("chatbox");
+        const targetSelect = document.getElementById("target-user");
+        const onlineStatus = document.getElementById("online-status");
 
+        // 核心升级：前端解析 JSON 协议
         ws.onmessage = function(event) {
-            // 创建新的气泡元素
-            const div = document.createElement("div");
-            
-            // 目前后端只是无差别广播，还分不清谁是谁，所以前端统一显示为灰色接收气泡
-            div.className = "bubble received";
-            div.textContent = event.data;
-            
-            chatbox.appendChild(div);
+            // 将后端发来的 JSON 字符串还原成 JavaScript 对象
+            const msg = JSON.parse(event.data);
+
+            if (msg.type === "system") {
+                // 1. 处理系统消息 (有人进出)
+                const div = document.createElement("div");
+                div.className = "system-msg";
+                div.textContent = msg.data;
+                chatbox.appendChild(div);
+            } 
+            else if (msg.type === "users") {
+                // 2. 处理在线列表更新
+                onlineStatus.textContent = "当前在线人数: " + msg.user_list.length;
+                
+                // 记住当前下拉框选中的人，防止列表刷新时焦点丢失
+                const currentTarget = targetSelect.value;
+                
+                // 重新渲染下拉列表
+                targetSelect.innerHTML = '<option value="all">🌐 发送给：所有人 (群发)</option>';
+                msg.user_list.forEach(user => {
+                    const option = document.createElement("option");
+                    option.value = user;
+                    option.textContent = "👤 悄悄话给: " + user;
+                    targetSelect.appendChild(option);
+                });
+                
+                // 如果之前选中的人还在列表里，恢复选中状态
+                if (msg.user_list.includes(currentTarget)) {
+                    targetSelect.value = currentTarget;
+                }
+            } 
+            else if (msg.type === "chat") {
+                // 3. 处理正常聊天消息
+                const wrapper = document.createElement("div");
+                wrapper.className = "message-wrapper";
+                
+                // 提取发件人 ID
+                const sender = document.createElement("div");
+                sender.className = "message-sender";
+                sender.textContent = msg.from;
+                
+                // 聊天气泡
+                const bubble = document.createElement("div");
+                bubble.className = "bubble";
+                bubble.textContent = msg.data;
+                
+                wrapper.appendChild(sender);
+                wrapper.appendChild(bubble);
+                chatbox.appendChild(wrapper);
+            }
+
             // 自动滚动到底部
             chatbox.scrollTop = chatbox.scrollHeight;
         };
 
         function send() {
             const input = document.getElementById("msg");
-            if (input.value.trim() !== "") {
-                ws.send(input.value);
+            const target = targetSelect.value; // 获取当前选中的是谁
+            const text = input.value.trim();
+            
+            if (text !== "") {
+                // 将我们要发的内容，严格按照后端的结构打包成 JSON 发送
+                const payload = {
+                    type: "chat",
+                    to: target,
+                    data: text
+                };
+                ws.send(JSON.stringify(payload)); // 序列化发出去
                 input.value = "";
             }
         }
